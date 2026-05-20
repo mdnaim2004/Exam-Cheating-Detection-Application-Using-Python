@@ -182,6 +182,36 @@ def parse_args():
         help="Show the live OpenCV monitoring window.",
     )
     parser.add_argument(
+        "--camera-width",
+        type=int,
+        default=1280,
+        help="Requested webcam capture width.",
+    )
+    parser.add_argument(
+        "--camera-height",
+        type=int,
+        default=720,
+        help="Requested webcam capture height.",
+    )
+    parser.add_argument(
+        "--window-width",
+        type=int,
+        default=1280,
+        help="OpenCV display window width.",
+    )
+    parser.add_argument(
+        "--window-height",
+        type=int,
+        default=720,
+        help="OpenCV display window height.",
+    )
+    parser.add_argument(
+        "--fullscreen",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Show the monitoring window in fullscreen mode.",
+    )
+    parser.add_argument(
         "--suspicious-objects",
         default="cell phone,book,laptop,keyboard,mouse,remote",
         help="Comma-separated YOLO labels to flag as suspicious objects.",
@@ -203,6 +233,12 @@ def parse_args():
         type=int,
         default=640,
         help="YOLO inference image size. Larger can help small objects but runs slower.",
+    )
+    parser.add_argument(
+        "--advanced-analysis",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Enable heavier hand, pose, eye, blink, mouth, and movement analysis.",
     )
     parser.add_argument(
         "--output-dir",
@@ -296,6 +332,8 @@ def parse_args():
         parser.error("--max-seconds must be zero or greater.")
     if args.direction_yaw_threshold < 0 or args.direction_pitch_threshold < 0:
         parser.error("Direction thresholds must be zero or greater.")
+    if min(args.camera_width, args.camera_height, args.window_width, args.window_height) <= 0:
+        parser.error("Camera and window dimensions must be greater than zero.")
     args.suspicious_objects = normalize_labels(args.suspicious_objects.split(","))
     if not args.suspicious_objects:
         args.suspicious_objects = set(DEFAULT_SUSPICIOUS_OBJECTS)
@@ -446,15 +484,69 @@ def point_in_bbox(point, bbox, padding=0):
     return x1 - padding <= point[0] <= x2 + padding and y1 - padding <= point[1] <= y2 + padding
 
 
-def show_frame(window_name, frame, display, wait_ms=1):
-    if not display:
+def configure_display(window_name, args):
+    if not args.display:
+        return
+
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    if args.fullscreen:
+        cv2.setWindowProperty(window_name, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+    else:
+        cv2.resizeWindow(window_name, args.window_width, args.window_height)
+
+
+def display_frame(frame, args):
+    return frame
+
+
+def show_frame(window_name, frame, args, wait_ms=1):
+    if not args.display:
         return None
 
-    cv2.imshow(window_name, frame)
+    cv2.imshow(window_name, display_frame(frame, args))
     return cv2.waitKey(wait_ms) & 0xFF
 
 
-def run_countdown(cap, display, seconds):
+def handle_display_key(window_name, key, args):
+    if key is None:
+        return False
+    if key == ord("q"):
+        return True
+    if key in (ord("+"), ord("=")):
+        args.window_width = int(args.window_width * 1.15)
+        args.window_height = int(args.window_height * 1.15)
+        cv2.resizeWindow(window_name, args.window_width, args.window_height)
+    elif key in (ord("-"), ord("_")):
+        args.window_width = max(320, int(args.window_width * 0.85))
+        args.window_height = max(240, int(args.window_height * 0.85))
+        cv2.resizeWindow(window_name, args.window_width, args.window_height)
+    elif key == ord("f"):
+        args.fullscreen = not args.fullscreen
+        mode = cv2.WINDOW_FULLSCREEN if args.fullscreen else cv2.WINDOW_NORMAL
+        cv2.setWindowProperty(window_name, cv2.WND_PROP_FULLSCREEN, mode)
+        if not args.fullscreen:
+            cv2.resizeWindow(window_name, args.window_width, args.window_height)
+    return False
+
+
+def configure_camera(cap, args):
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, args.camera_width)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, args.camera_height)
+
+
+def print_camera_settings(cap, args):
+    actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    print("=== CAMERA SETTINGS ===")
+    print(f"Requested camera size: {args.camera_width}x{args.camera_height}")
+    print(f"Actual camera size: {actual_width}x{actual_height}")
+    if args.fullscreen:
+        print("Display: fullscreen")
+    else:
+        print(f"Display window size: {args.window_width}x{args.window_height}")
+
+
+def run_countdown(cap, args, seconds):
     if seconds <= 0:
         return
 
@@ -465,14 +557,14 @@ def run_countdown(cap, display, seconds):
 
         draw_text(frame, "Please face the camera directly for calibration.", 50, 100)
         draw_text(frame, f"Calibration starts in: {remaining}", 50, 150, (0, 255, 255), 1)
-        key = show_frame("Proctoring System", frame, display, 1000)
-        if not display:
+        key = show_frame("Proctoring System", frame, args, 1000)
+        if not args.display:
             time.sleep(1)
-        if key == ord("q"):
+        if handle_display_key("Proctoring System", key, args):
             raise KeyboardInterrupt
 
 
-def calibrate_pose(cap, face_mesh, display, seconds):
+def calibrate_pose(cap, face_mesh, args, seconds):
     calibration_frames = []
     start_time = time.time()
 
@@ -495,8 +587,8 @@ def calibrate_pose(cap, face_mesh, display, seconds):
         seconds_left = max(0, seconds - int(time.time() - start_time))
         draw_text(frame, "Calibrating... Keep your face straight!", 50, 100)
         draw_text(frame, f"Seconds left: {seconds_left}", 50, 150, (0, 255, 255), 1)
-        key = show_frame("Proctoring System", frame, display)
-        if key == ord("q"):
+        key = show_frame("Proctoring System", frame, args)
+        if handle_display_key("Proctoring System", key, args):
             raise KeyboardInterrupt
 
     if not calibration_frames:
@@ -843,11 +935,14 @@ def run_monitoring(args):
     cap = cv2.VideoCapture(args.camera)
     if not cap.isOpened():
         raise RuntimeError(f"Unable to open camera index {args.camera}.")
+    configure_camera(cap, args)
+    configure_display("Proctoring System", args)
+    print_camera_settings(cap, args)
 
     mp_face_mesh = mp.solutions.face_mesh
     mp_face_detection = mp.solutions.face_detection
-    mp_hands = mp.solutions.hands
-    mp_pose = mp.solutions.pose
+    mp_hands = mp.solutions.hands if args.advanced_analysis else None
+    mp_pose = mp.solutions.pose if args.advanced_analysis else None
     yolo_model = YOLO(str(args.model))
     print_detector_settings(args, yolo_model)
     event_logger = EventLogger(args.output_dir, args.snapshot_events, args.event_cooldown)
@@ -859,22 +954,28 @@ def run_monitoring(args):
         "highest_visible_people": 0,
     }
     video_writer = None
+    hands = None
+    pose = None
 
     start_session_time = time.time()
     try:
         with mp_face_mesh.FaceMesh(refine_landmarks=True) as face_mesh, (
             mp_face_detection.FaceDetection(min_detection_confidence=args.face_confidence)
-        ) as face_detection, mp_hands.Hands(
-            max_num_hands=2,
-            min_detection_confidence=args.hand_confidence,
-            min_tracking_confidence=args.hand_confidence,
-        ) as hands, mp_pose.Pose(
-            min_detection_confidence=args.pose_confidence,
-            min_tracking_confidence=args.pose_confidence,
-        ) as pose:
-            run_countdown(cap, args.display, args.pre_calibration_seconds)
+        ) as face_detection:
+            if args.advanced_analysis:
+                hands = mp_hands.Hands(
+                    max_num_hands=2,
+                    min_detection_confidence=args.hand_confidence,
+                    min_tracking_confidence=args.hand_confidence,
+                )
+                pose = mp_pose.Pose(
+                    min_detection_confidence=args.pose_confidence,
+                    min_tracking_confidence=args.pose_confidence,
+                )
+
+            run_countdown(cap, args, args.pre_calibration_seconds)
             calibrated_pitch, calibrated_yaw = calibrate_pose(
-                cap, face_mesh, args.display, args.calibration_seconds
+                cap, face_mesh, args, args.calibration_seconds
             )
 
             start_session_time = time.time()
@@ -887,13 +988,17 @@ def run_monitoring(args):
                 rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 face_mesh_results = face_mesh.process(rgb_frame)
                 face_detection_results = face_detection.process(rgb_frame)
-                hand_results = hands.process(rgb_frame)
-                pose_results = pose.process(rgb_frame)
+                hand_results = hands.process(rgb_frame) if hands else None
+                pose_results = pose.process(rgb_frame) if pose else None
                 elapsed_seconds = time.time() - start_session_time
                 active_events = []
 
-                quality_events, brightness, contrast, motion_score = analyzer.analyze_frame_quality(frame)
-                active_events.extend(quality_events)
+                brightness = 0.0
+                contrast = 0.0
+                motion_score = 0.0
+                if args.advanced_analysis:
+                    quality_events, brightness, contrast, motion_score = analyzer.analyze_frame_quality(frame)
+                    active_events.extend(quality_events)
 
                 head_events, _ = process_head_pose(
                     frame,
@@ -910,13 +1015,16 @@ def run_monitoring(args):
                 active_events.extend(head_events)
 
                 height, width, _ = frame.shape
-                landmark_events, face_bbox, _ = analyzer.analyze_face_landmarks(
-                    face_mesh_results, width, height, elapsed_seconds
-                )
-                active_events.extend(landmark_events)
+                face_bbox = None
+                if args.advanced_analysis:
+                    landmark_events, face_bbox, _ = analyzer.analyze_face_landmarks(
+                        face_mesh_results, width, height, elapsed_seconds
+                    )
+                    active_events.extend(landmark_events)
 
-                hand_events = analyzer.analyze_hands(frame, hand_results, face_bbox)
-                active_events.extend(hand_events)
+                if args.advanced_analysis and hand_results:
+                    hand_events = analyzer.analyze_hands(frame, hand_results, face_bbox)
+                    active_events.extend(hand_events)
 
                 face_count = get_face_count(face_detection_results)
                 draw_face_boxes(frame, face_detection_results)
@@ -941,9 +1049,9 @@ def run_monitoring(args):
 
                 if face_count == 0 and person_count == 0:
                     active_events.append("seat_leaving")
-                if pose_results.pose_landmarks is None and face_count == 0:
+                if args.advanced_analysis and pose_results and pose_results.pose_landmarks is None and face_count == 0:
                     active_events.append("full_body_absence")
-                if motion_score > args.motion_threshold and visible_people > 1:
+                if args.advanced_analysis and motion_score > args.motion_threshold and visible_people > 1:
                     active_events.append("background_movement")
 
                 for label, count in object_detections.items():
@@ -960,15 +1068,16 @@ def run_monitoring(args):
                 for event in active_events:
                     stats["event_counts"][event] = stats["event_counts"].get(event, 0) + 1
 
-                draw_text(
-                    frame,
-                    f"Brightness: {brightness:.0f} | Motion: {motion_score:.1f}",
-                    10,
-                    max(20, frame.shape[0] - 20),
-                    (220, 220, 220),
-                    0.55,
-                    1,
-                )
+                if args.advanced_analysis:
+                    draw_text(
+                        frame,
+                        f"Brightness: {brightness:.0f} | Motion: {motion_score:.1f}",
+                        10,
+                        max(20, frame.shape[0] - 20),
+                        (220, 220, 220),
+                        0.55,
+                        1,
+                    )
                 draw_status_panel(
                     frame,
                     stats,
@@ -1003,12 +1112,17 @@ def run_monitoring(args):
                 if video_writer is not None:
                     video_writer.write(frame)
 
-                key = show_frame("Proctoring System", frame, args.display)
-                if key == ord("q"):
+                key = show_frame("Proctoring System", frame, args)
+                if handle_display_key("Proctoring System", key, args):
                     break
                 if args.max_seconds and elapsed_seconds >= args.max_seconds:
                     break
     finally:
+        if args.advanced_analysis:
+            if hands is not None:
+                hands.close()
+            if pose is not None:
+                pose.close()
         cap.release()
         if video_writer is not None:
             video_writer.release()

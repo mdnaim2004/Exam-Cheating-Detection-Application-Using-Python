@@ -54,7 +54,21 @@ Start the proctoring session:
 python main.py
 ```
 
+Stable mode keeps the app lighter and focuses on camera, face direction, no-face, multiple-person, and YOLO object detection. Heavier eye/hand/pose/movement analysis is optional:
+
+```bash
+python main.py --advanced-analysis
+```
+
 Press `q` in the OpenCV window to stop the session and print the summary.
+
+Window controls:
+
+- Drag the window border/corner to resize it manually
+- Press `+` to make the window bigger
+- Press `-` to make the window smaller
+- Press `f` to toggle fullscreen
+- Press `q` to quit
 
 Useful options:
 
@@ -63,6 +77,8 @@ python main.py --camera 1
 python main.py --confidence 0.25
 python main.py --model models/yolov8n.pt
 python main.py --no-display
+python main.py --camera-width 1280 --camera-height 720 --window-width 1280 --window-height 720
+python main.py --fullscreen
 python main.py --yaw-threshold 140 --pitch-threshold 180
 python main.py --max-seconds 600
 python main.py --no-snapshot-events
