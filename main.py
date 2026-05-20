@@ -1,5 +1,6 @@
 import argparse
 import importlib
+import os
 import sys
 import time
 from pathlib import Path
@@ -25,6 +26,14 @@ MODEL_POINTS = None
 def load_runtime_dependencies():
     global cv2, mp, np, YOLO, MODEL_POINTS
 
+    cache_dir = Path(".cache")
+    matplotlib_cache = cache_dir / "matplotlib"
+    ultralytics_cache = cache_dir / "ultralytics"
+    matplotlib_cache.mkdir(parents=True, exist_ok=True)
+    ultralytics_cache.mkdir(parents=True, exist_ok=True)
+    os.environ.setdefault("MPLCONFIGDIR", str(matplotlib_cache.resolve()))
+    os.environ.setdefault("YOLO_CONFIG_DIR", str(ultralytics_cache.resolve()))
+
     if sys.version_info >= (3, 13):
         raise RuntimeError(
             "This project depends on MediaPipe, which is not supported on your active "
@@ -44,7 +53,8 @@ def load_runtime_dependencies():
         packages = ", ".join(missing)
         raise RuntimeError(
             f"Missing Python package(s): {packages}. Install them with "
-            "'pip install -r requirements.txt'."
+            f"'{sys.executable} -m pip install -r requirements.txt'. "
+            f"Current Python: {sys.executable}"
         )
 
     cv2 = modules["cv2"]

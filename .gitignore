@@ -5,9 +5,15 @@ __pycache__/
 *.log
 env/
 venv/
+.venv/
+.cache/
 .yolov5/
+yolov8n/
 *.onnx
 *.pt
 .DS_Store
 .idea/
 *.iml
+.venv/
+__pycache__/
+*.pyc
