@@ -1,4 +1,5 @@
 # Exam Cheating Detection Application
+---
 
 A real-time exam proctoring prototype built with Python, OpenCV, MediaPipe, and YOLOv8. It monitors a webcam feed and flags suspicious behavior such as looking away, a phone or book in frame, and multiple people appearing on camera.
 
@@ -154,6 +155,7 @@ Needs custom work beyond the default YOLOv8 COCO model:
 - Microphone/voice detection and audio warning system
 
 ## Notes
+---
 
 - The default model path is `models/yolov8n.pt`.
 - If the model is missing, run `python scripts/download_model.py`.
